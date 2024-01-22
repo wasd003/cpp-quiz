@@ -1,0 +1,6 @@
+build/
+compile_commands.json
+*.swp
+.cache/
+.gdbinit
+log
