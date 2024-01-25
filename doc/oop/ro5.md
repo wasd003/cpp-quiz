@@ -17,8 +17,3 @@
 
 ## 思考
 答案中的assignment operator使用copy-and-swap实现，这样做有什么缺点？
-
-## 参考答案
-```
-answer/ro5.cxx
-```

@@ -1,4 +1,4 @@
-file (GLOB answer_files "*.cxx")
+file (GLOB_RECURSE answer_files "*.cxx")
 
 foreach(src_file ${answer_files})
     get_filename_component(exe_name ${src_file} NAME_WE)
