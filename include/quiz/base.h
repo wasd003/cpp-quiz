@@ -8,3 +8,5 @@
 #include <algorithm>
 #include <utility>
 #include <memory>
+
+#define UNUSED(x) (void)(x)
