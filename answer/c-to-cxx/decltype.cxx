@@ -5,5 +5,6 @@
 int main() {
     int x = 1;
     static_assert(std::is_same_v<int&, decltype((x))>);
+    UNUSED(x);
     return 0;
 }
