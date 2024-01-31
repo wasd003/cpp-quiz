@@ -4,6 +4,7 @@
 
 template<auto N>
 consteval decltype(auto) get_primes() {
+    assert(std::is_constant_evaluated());
     std::array<bool, N + 1> is_primes;
     is_primes.fill(true);
     is_primes[1] = false;
@@ -16,10 +17,8 @@ consteval decltype(auto) get_primes() {
 }
 
 int main() {
-    auto is_primes = get_primes<100>();
+    auto is_primes = get_primes<1000>();
     UNUSED(is_primes);
-    for (size_t i = 0; i < is_primes.size(); i ++ )
-        debug(i, ":", is_primes[i]);
 
     return 0;
 }
