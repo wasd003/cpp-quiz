@@ -29,6 +29,7 @@ struct lockless_stack {
         }
     }
 
+    // FIXME: memory leak
     std::optional<T> pop() {
         auto shadow_head = head.load();
         bool ans_flag;
