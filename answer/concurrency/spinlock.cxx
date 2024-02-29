@@ -17,6 +17,8 @@ int main() {
     int cnt = 0;
     spinlock lk;
     std::vector<std::thread> th;
+    std::thread t([]() {for (;;);});
+    t.join();
     for (int i = 0; i < n; i ++ ) {
         th.emplace_back([&cnt, &lk]() {
             lk.lock();
