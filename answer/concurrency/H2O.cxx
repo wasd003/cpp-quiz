@@ -1,35 +1,38 @@
+#include <atomic>
 #include <mutex>
 #include <quiz/base.h>
 #include <thread>
 #include <condition_variable>
 
-constinit std::mutex mtx;
-int hcnt = 0, ocnt = 0;
-std::condition_variable hcond, ocond;
+void condition_variable_ver() {
+    constinit static std::mutex mtx;
+    int hcnt = 0, ocnt = 0;
+    std::condition_variable hcond, ocond;
 
-inline bool check_final_round() {
-    return hcnt == 2 && ocnt == 1;
-}
+    auto check_final_round = [&hcnt, &ocnt]() {
+        return hcnt == 2 && ocnt == 1;
+    };
 
-inline void reset() {
-    hcnt = ocnt = 0;
-}
+    auto reset = [&hcnt, &ocnt]() {
+        hcnt = ocnt = 0;
+    };
 
-int main() {
-    std::thread hthread([]() {
+    // FIXME: Bad Practice: don't use default capture !!
+    std::thread hthread([&]() {
         for (;;) {
             std::unique_lock<std::mutex> lk(mtx);
-            hcond.wait(lk, []() { return hcnt < 2; });
+            hcond.wait(lk, [&hcnt]() { return hcnt < 2; });
             printf("H");
             hcnt ++ ;
             if (check_final_round()) reset();
             ocond.notify_all();
         }
     });
-    std::thread othread([]() {
+    // FIXME: Bad Practice: don't use default capture !!
+    std::thread othread([&]() {
         for (;;) {
             std::unique_lock<std::mutex> lk(mtx);
-            ocond.wait(lk, []() { return ocnt < 1; });
+            ocond.wait(lk, [&ocnt]() { return ocnt < 1; });
             printf("O");
             ocnt ++ ;
             if (check_final_round()) reset();
@@ -38,5 +41,62 @@ int main() {
     });
     hthread.join();
     othread.join();
+}
+
+void atomic_variable_ver() {
+    std::atomic<uint8_t> x {0}; // ocnt(1-bit) | hcnt(2-bit)
+    constinit static std::mutex mtx;
+    setbuf(stdout, NULL);
+    std::thread hthread([&x]() {
+        for (;;) {
+            auto shadowx = x.load();
+            bool flag;
+            uint8_t newx;
+            do {
+                int hcnt = shadowx & 3;
+                if (hcnt == 2) {
+                    flag = false;
+                    break;
+                } else {
+                    assert(hcnt < 2);
+                    newx = shadowx + 1;
+                    flag = true;
+                }
+            } while (!x.compare_exchange_weak(shadowx, newx));
+            std::unique_lock<std::mutex> lk(mtx);
+            if (flag) printf("H");
+        }
+    });
+
+    std::thread othread([&x]() {
+        for (;;) {
+            auto shadowx = x.load();
+            bool flag;
+            uint8_t newx;
+            do {
+                int hcnt = shadowx & 3, ocnt = shadowx >> 2;
+                if (hcnt == 2 && ocnt == 1) {
+                    flag = false;
+                    newx = 0;
+                } else if (ocnt == 1) {
+                    flag = false;
+                    break;
+                } else {
+                    assert(ocnt == 0);
+                    newx = shadowx | (1 << 2);
+                    flag = true;
+                }
+            } while (!x.compare_exchange_weak(shadowx, newx));
+            std::unique_lock<std::mutex> lk(mtx);
+            if (flag) printf("O");
+        }
+    });
+    hthread.join();
+    othread.join();
+}
+
+int main() {
+    condition_variable_ver();
+    atomic_variable_ver();
     return 0;
 }
