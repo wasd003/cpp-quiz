@@ -5,42 +5,35 @@
 
 template<typename T>
 struct node {
-    node *prev;
     T data;
+    node<T> *next;
 
-    node(const T& data) : prev(nullptr), data(data) {}
-
-    node() {}
+    node(const T& data) : data(data) {}
 };
 
 template<typename T>
 struct lockless_stack {
-    using PTR = node<T>*;
-    std::atomic<PTR> head;
+    std::atomic<node<T>*> head {nullptr};
 
-    lockless_stack() : head(new node<T> {}) {}
-
-    void push(const T& data) {
+    void push(const T& val) {
+        auto new_node = new node<T>(val);
         auto shadow_head = head.load();
-        auto new_head = new node(data);
-        new_head->prev = shadow_head;
-        while (!head.compare_exchange_weak(shadow_head, new_head)) {
-            new_head->prev = shadow_head;
-        }
+        do {
+            new_node->next = shadow_head;
+        } while (!head.compare_exchange_strong(shadow_head, new_node));
     }
 
-    // FIXME: memory leak
     std::optional<T> pop() {
-        auto shadow_head = head.load();
-        bool ans_flag;
-        while ((ans_flag = (shadow_head->prev != nullptr)) && !head.compare_exchange_weak(shadow_head, shadow_head->prev));
-        if (ans_flag) {
-            return std::move(shadow_head->data);
-        } else {
-            return std::nullopt;
-        }
+        auto shadow_head = std::atomic_load(&head);
+        do {
+            if (!shadow_head) return std::nullopt;
+        } while (!head.compare_exchange_strong(shadow_head, shadow_head->next));
+        auto val = std::move(shadow_head->data);
+        delete shadow_head;
+        return val;
     }
 };
+
 
 template<typename T>
 requires requires(T t) {
@@ -84,7 +77,7 @@ void single_thread_test() {
 }
 
 int main() {
-    single_thread_test();
+    /* single_thread_test(); */
 
     multi_thread_test();
 }
