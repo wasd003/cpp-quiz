@@ -44,10 +44,8 @@ void condition_variable_ver() {
 }
 
 void atomic_variable_ver() {
-    std::atomic<uint8_t> x {0}; // ocnt(1-bit) | hcnt(2-bit)
-    constinit static std::mutex mtx;
-    setbuf(stdout, NULL);
-    std::thread hthread([&x]() {
+    std::atomic<uint8_t> x {0}, print_cnt {0}; // ocnt(1-bit) | hcnt(2-bit)
+    std::thread hthread([&x, &print_cnt]() {
         for (;;) {
             auto shadowx = x.load();
             bool flag;
@@ -63,22 +61,21 @@ void atomic_variable_ver() {
                     flag = true;
                 }
             } while (!x.compare_exchange_weak(shadowx, newx));
-            std::unique_lock<std::mutex> lk(mtx);
-            if (flag) printf("H");
+            if (flag) {
+                std::cout << "H";
+                print_cnt ++ ;
+            }
         }
     });
 
-    std::thread othread([&x]() {
+    std::thread othread([&x, &print_cnt]() {
         for (;;) {
             auto shadowx = x.load();
             bool flag;
             uint8_t newx;
             do {
-                int hcnt = shadowx & 3, ocnt = shadowx >> 2;
-                if (hcnt == 2 && ocnt == 1) {
-                    flag = false;
-                    newx = 0;
-                } else if (ocnt == 1) {
+                int ocnt = shadowx >> 2;
+                if (ocnt == 1) {
                     flag = false;
                     break;
                 } else {
@@ -87,8 +84,14 @@ void atomic_variable_ver() {
                     flag = true;
                 }
             } while (!x.compare_exchange_weak(shadowx, newx));
-            std::unique_lock<std::mutex> lk(mtx);
-            if (flag) printf("O");
+            if (flag) {
+                std::cout << "O";
+                print_cnt ++ ;
+            }
+            if (print_cnt == 3) {
+                print_cnt = 0;
+                x = 0;
+            }
         }
     });
     hthread.join();
@@ -96,7 +99,7 @@ void atomic_variable_ver() {
 }
 
 int main() {
-    condition_variable_ver();
+    /* condition_variable_ver(); */
     atomic_variable_ver();
     return 0;
 }
