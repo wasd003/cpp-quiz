@@ -6,60 +6,69 @@
 #include <quiz/base.h>
 
 template<typename T>
-struct object_pool {
-    const static size_t PAGE_SIZE {32};
-    const static size_t OSIZE {sizeof (T)};
-    std::list<uint8_t*> page_list;
-    uint8_t* freelist_head {nullptr};
-    uint16_t cur_last {0};
+struct kmem_cache {
+private:
+    const static uint16_t base = sizeof (uint8_t**);
+    const static uint16_t PAGE_SIZE = 4096U;
+    const static uint16_t ObjectSize = sizeof (T);
+    uint8_t *page_head {nullptr};
+    uint8_t *freelist_head {nullptr};
+    uint16_t offset {base};
 
-    #define NEXT_PTR(p) (reinterpret_cast<uint8_t**>(p))
+    #define NEXT_PTR(x) (reinterpret_cast<uint8_t**>(x))
 
-    object_pool() {
-        assert(PAGE_SIZE % OSIZE == 0);
-        assert(OSIZE >= sizeof (uint8_t*)); // at least store a pointer
-        page_list.emplace_back(new uint8_t [PAGE_SIZE]);
+public:
+    kmem_cache() {
+        page_head = new uint8_t[PAGE_SIZE];
+        *NEXT_PTR(page_head) = nullptr;
     }
 
-    uint8_t *allocate() {
+    ~kmem_cache() {
+        auto page = page_head;
+        while (page) {
+            auto next = *NEXT_PTR(page);
+            delete[] page;
+            page = next;
+        }
+    }
+
+    kmem_cache(const kmem_cache&) = delete;
+    kmem_cache& operator=(const kmem_cache&) = delete;
+    kmem_cache(kmem_cache&&) = delete;
+    kmem_cache& operator=(kmem_cache&&) = delete;
+
+    T *allocate() {
     reallocate:
-        printf("allocate: ");
-        if (cur_last < PAGE_SIZE) {
-            printf("allocate in page:%p\n", page_list.front());
-            auto ans = page_list.front() + cur_last;
-            cur_last += OSIZE;
-            return ans;
-        } else if (freelist_head) {
-            uint8_t *ans = freelist_head;
-            printf("allocate in freelist:%p\n", ans);
+        if (offset + ObjectSize < PAGE_SIZE) { // case #1: allocate in current page
+            auto res = page_head + offset;
+            offset += ObjectSize;
+            return reinterpret_cast<T*>(res);
+        } else if (freelist_head) { // case #2: allcocate from freelist
+            auto res = freelist_head;
             freelist_head = *NEXT_PTR(freelist_head);
-            return ans;
-        } else {
-            uint8_t *new_page = new uint8_t[PAGE_SIZE];
-            printf("new page:%p\n", new_page);
-            page_list.push_front(new_page);
-            cur_last = 0;
+            return reinterpret_cast<T*>(res);
+        } else { // case #3: allocate new page
+            auto new_page = new uint8_t [PAGE_SIZE];
+            *NEXT_PTR(new_page) = page_head;
+            page_head = new_page;
+            offset = base;
             goto reallocate;
         }
     }
 
-    void destroy(uint8_t *p) {
-        printf("return object:%p to freelist\n", p);
+    void destroy(T *obj) {
+        uint8_t *p = reinterpret_cast<uint8_t *>(obj);
         *NEXT_PTR(p) = freelist_head;
         freelist_head = p;
-    }
-
-    ~object_pool() {
-        for (auto x : page_list) delete [] x;
     }
 };
 
 int main() {
     using PII = std::pair<int, int>;
-    object_pool<PII> opool;
+    kmem_cache<PII> opool;
     auto p = opool.allocate();
     opool.destroy(p);
-    std::vector<uint8_t*> ptr_list;
+    std::vector<PII*> ptr_list;
     for (int i = 0; i < 10; i ++ ) {
         p = opool.allocate();
         ptr_list.push_back(p);
