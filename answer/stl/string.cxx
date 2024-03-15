@@ -5,16 +5,22 @@
 
 struct string {
 private:
+    struct short_type {
+        uint8_t size;
+        char data[23];
+    };
+    struct long_type {
+        uint64_t capacity;
+        uint64_t size;
+        char *data;
+    };
     union metadata {
-        struct short_type {
-            uint8_t size;
-            char data[23];
-        } __short;
-        struct long_type {
-            uint64_t capacity;
-            uint64_t size;
-            char *data;
-        } __long;
+        short_type __short;
+        long_type  __long;
+
+        metadata() {
+            memset(this, 0, sizeof (metadata));
+        }
     } mdata;
 
     bool use_short() const {
