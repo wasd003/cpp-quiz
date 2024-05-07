@@ -44,11 +44,7 @@ private:
         virtual ~execution_engine() {}
     };
 
-    execution_interface *pimpl {nullptr};
-
-    void swap(any& rhs) noexcept {
-        std::swap(pimpl, rhs.pimpl);
-    }
+    std::unique_ptr<execution_interface> pimpl;
 
 public:
     void execute() {
@@ -57,30 +53,11 @@ public:
     }
 
     template<typename Tsk, typename... Args>
-    any(Tsk tsk, Args&&... args) {
-        pimpl = new execution_engine<Tsk, Args...> {
-            std::move(tsk),
-            std::forward<Args>(args)...
-        };
-    }
-
-    any(const any& rhs) = delete;
-
-    any& operator=(const any& rhs) = delete;
-
-    any(any&& rhs) : pimpl(rhs.pimpl) {
-        rhs.pimpl = nullptr;
-    }
-
-    any& operator=(any&& rhs) {
-        auto tmp = std::move(rhs);
-        swap(tmp);
-        return *this;
-    }
-
-    ~any() {
-        delete pimpl;
-    }
+    any(Tsk tsk, Args&&... args):
+        pimpl(std::make_unique<execution_engine<Tsk, Args...>>(
+                    std::move(tsk),
+                    std::forward<Args>(args)...))
+    {}
 };
 
 static std::deque<any> vec;
