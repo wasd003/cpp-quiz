@@ -28,7 +28,7 @@ private:
 
 public:
     template<typename F>
-    function(F f) : pimpl(std::make_unique<function_impl<F>> (f)) {}
+    function(F f) : pimpl(std::make_unique<function_impl<F>> (std::move(f))) {}
 
     R operator()(Args&&... args) {
         assert(pimpl);
