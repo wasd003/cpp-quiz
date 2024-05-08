@@ -59,7 +59,8 @@ struct net_socket {
 
         // set socket reusable in case of error when launching application multiple times in short time
         int opt = 1;
-        auto ret = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
+        auto ret = setsockopt(socket_fd, SOL_SOCKET, 
+                SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
         assert(!ret);
 
         ret = bind(socket_fd, (struct sockaddr *)&monitor_addr, addrlen);
@@ -93,7 +94,6 @@ struct net_socket {
 struct tcp_server {
 private:
     using tcp_server_socket = net_socket<enum_socket_protocol::tcp, server_socket_tag>;
-    std::vector<tcp_server_socket> all_sockets;
     tcp_server_socket listening_socket;
     constexpr static size_t MAX_EVENTS = 10, BUFFER_SIZE = 1024;
 
@@ -116,9 +116,8 @@ public:
         } control_un;
 
         // message header
-        sockaddr_in sender_addr;
         struct msghdr msg {
-            &sender_addr, sizeof (sender_addr),
+            nullptr, 0,
             iov, 1,
             control_un.control,
             sizeof (control_un.control),
@@ -128,7 +127,7 @@ public:
         ssize_t bytes_received = recvmsg(fd, &msg, MSG_DONTWAIT);
         assert(bytes_received > 0); 
 
-        std::cout << "Received: " << std::string(buf, bytes_received) << std::endl;
+        std::cout << "server received: " << std::string(buf, bytes_received) << std::endl;
 
 #if 0
         // check ancillary data
@@ -145,7 +144,7 @@ public:
     void poll() {
         epoll_event event_list[MAX_EVENTS];
 
-        auto add_new_event = [](int epoll_fd, int new_socket, uint32_t event_mask) {
+        const auto add_new_event = [](int epoll_fd, int new_socket, uint32_t event_mask) {
             epoll_event event;
             event.data.fd = new_socket;
             event.events = event_mask;
@@ -155,11 +154,11 @@ public:
             }
         };
 
-        auto epoll_fd = epoll_create1(0);
+        const auto epoll_fd = epoll_create1(0);
         assert(epoll_fd >= 0);
 
         // listen socket fd set LT mode
-        add_new_event(epoll_fd, listening_socket.socketfd, EPOLLIN | EPOLLET);
+        add_new_event(epoll_fd, listening_socket.socketfd, EPOLLIN);
 
         while (true) {
             auto num_events = epoll_wait(epoll_fd, event_list, MAX_EVENTS, -1);
@@ -171,16 +170,16 @@ public:
             for (int i = 0; i < num_events; i ++ ) {
                 if (event_list[i].data.fd == listening_socket.socketfd) {
                     // accept new connection
-                    sockaddr_in monitor_addr {};
-                    socklen_t addr_len = sizeof(monitor_addr);
-                    auto new_socket = accept(listening_socket.socketfd, (struct sockaddr *)&monitor_addr, &addr_len);
+                    sockaddr_in client_addr {};
+                    socklen_t addr_len = sizeof(client_addr);
+                    auto new_socket = accept(listening_socket.socketfd, (struct sockaddr *)&client_addr, &addr_len);
                     assert(new_socket >= 0);
 
                     // set new_socket as non-blocking
                     // as we want data socketfd set as ET mode
                     fcntl(new_socket, F_SETFL, O_NONBLOCK);
                     add_new_event(epoll_fd, new_socket, EPOLLIN | EPOLLET);
-                    std::cout << "New connection from " << inet_ntoa(monitor_addr.sin_addr) << ":" << ntohs(monitor_addr.sin_port) << std::endl;
+                    std::cout << "New connection from " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port) << std::endl;
                 } else {
                     handle_read_event(epoll_fd, event_list[i].data.fd);
                 }
@@ -199,8 +198,11 @@ int main() {
     std::thread client_thread([]() {
         net_socket<enum_socket_protocol::tcp, client_socket_tag>
             tcp_client_socket {"127.0.0.1", 8080, };
-        std::string msg = "hello world";
+        const std::string msg = "hello world";
+        char buf[1024];
         send(tcp_client_socket.socketfd, msg.c_str(), msg.size(), 0);
+        auto len = recv(tcp_client_socket.socketfd, buf, 1024, 0);
+        std::cout << "client received: " << std::string(buf, len);
     });
 
     server_thread.join();
