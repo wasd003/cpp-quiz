@@ -129,6 +129,9 @@ public:
 
         std::cout << "server received: " << std::string(buf, bytes_received) << std::endl;
 
+        const std::string m = "bye :)";
+        send(fd, m.c_str(), m.size(), 0);
+
 #if 0
         // check ancillary data
         for (auto *cmptr = CMSG_FIRSTHDR(&msg); cmptr != NULL; cmptr = CMSG_NXTHDR(&msg, cmptr)) {
@@ -202,7 +205,7 @@ int main() {
         char buf[1024];
         send(tcp_client_socket.socketfd, msg.c_str(), msg.size(), 0);
         auto len = recv(tcp_client_socket.socketfd, buf, 1024, 0);
-        std::cout << "client received: " << std::string(buf, len);
+        std::cout << "client received: " << std::string(buf, len) << std::endl;
     });
 
     server_thread.join();
