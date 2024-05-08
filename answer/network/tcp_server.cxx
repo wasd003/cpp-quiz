@@ -21,7 +21,6 @@ enum class enum_socket_type { client, server, };
 
 template<enum_socket_protocol socket_protocol, enum_socket_type socket_type>
 struct net_socket {
-private:
     std::string ipaddr;
     uint16_t port;
     int socketfd;
@@ -51,6 +50,13 @@ private:
                 { inet_addr(ipaddr.c_str()) }, {}
             };
             socklen_t addrlen = sizeof (monitor_addr);
+
+			int opt = 1;
+			if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+				perror("setsockopt");
+				exit(EXIT_FAILURE);
+			}
+
             auto ret = bind(socket_fd, (struct sockaddr *)&monitor_addr, addrlen);
             assert(!ret);
             if constexpr (socket_protocol == enum_socket_protocol::tcp) {
@@ -58,10 +64,6 @@ private:
                 assert(!ret);
                 printf("server listening on %s:%d\n", ipaddr.c_str(), port);
             }
-
-            auto new_socket = accept(socket_fd, (struct sockaddr *)&monitor_addr, &addrlen);
-            UNUSED(new_socket);
-            printf("recv connection\n");
         }
 #if 0
         setNonBlocking(socket_fd);
@@ -72,30 +74,74 @@ private:
         return socket_fd;
     }
 
-public:
     net_socket(const std::string& _ipaddr, uint16_t _port):
         ipaddr(_ipaddr), port(_port),
         socketfd(create_socketfd())
     {}
 };
 
-#if 0
 struct tcp_server {
 private:
-    std::vector<tcp_socket> all_sockets;
-    tcp_socket listening_socket;
+    using tcp_server_socket = net_socket<enum_socket_protocol::tcp, enum_socket_type::server>;
+    std::vector<tcp_server_socket> all_sockets;
+    tcp_server_socket listening_socket;
+    constexpr static size_t MAX_EVENTS = 10;
 
 public:
-    tcp_server() {
+    tcp_server(const std::string& _ipaddr, uint16_t _port):
+        listening_socket(_ipaddr, _port)
+    {}
 
+    void poll() {
+        epoll_event event_list[MAX_EVENTS];
+
+        auto add_new_event = [](int epoll_fd, int new_socket) {
+            epoll_event event;
+            event.data.fd = new_socket;
+            event.events = EPOLLIN | EPOLLET;
+            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, &event) == -1) {
+                perror("epoll_ctl: add");
+                close(new_socket);
+            }
+        };
+
+        auto epoll_fd = epoll_create1(0);
+        assert(epoll_fd >= 0);
+
+        add_new_event(epoll_fd, listening_socket.socketfd);
+
+        while (true) {
+            auto num_events = epoll_wait(epoll_fd, event_list, MAX_EVENTS, -1);
+            if (num_events == -1) {
+                perror("epoll_wait");
+                continue;
+            }
+
+            for (int i = 0; i < num_events; ++i) {
+                if (event_list[i].data.fd == listening_socket.socketfd) {
+                    // accept new connection
+                    sockaddr_in monitor_addr {};
+                    socklen_t addr_len = sizeof(monitor_addr);
+                    auto new_socket = accept(listening_socket.socketfd, (struct sockaddr *)&monitor_addr, &addr_len);
+                    assert(new_socket >= 0);
+
+                    // set new_socket as non-blocking
+                    fcntl(new_socket, F_SETFL, O_NONBLOCK);
+                    add_new_event(epoll_fd, new_socket);
+                    std::cout << "New connection from " << inet_ntoa(monitor_addr.sin_addr) << ":" << ntohs(monitor_addr.sin_port) << std::endl;
+                } else {
+                    // 处理已连接socket的读事件
+                    /* handle_read_event(epoll_fd, events[i].data.fd); */
+                }
+            }
+        }
     }
 };
-#endif
 
 int main() {
     std::thread server_thread([]() {
-        net_socket<enum_socket_protocol::tcp, enum_socket_type::server>
-            tcp_server_socket {"0.0.0.0", 8080};
+        tcp_server server {"0.0.0.0", 8080};
+        server.poll();
     });
 
     sleep(1);
