@@ -16,19 +16,21 @@ int fold_add(First first, Rest... rest) {
     return (first + ... + rest);
 }
 
-void printk(const std::string_view &s) {
-    std::cout << s;
+void printk(const std::string_view& fmt) {
+    std::cout << fmt;
 }
 
 template<typename First, typename... Rest>
-void printk(const std::string_view &s, const First& first, const Rest&... rest) {
-    if (s.empty()) return;
-    if (s.size() >= 2 && s[0] == '{' && s[1] == '}') [[unlikely]] {
-        std::cout << first;
-        printk(s.substr(2), rest...);
-    } else {
-        std::cout << s[0];
-        printk(s.substr(1), first, rest...);
+void printk(const std::string_view& fmt, const First& first, const Rest&... rest) {
+    const int n = fmt.size();
+    for (int i = 0; i < n; i ++ ) {
+        if (fmt[i] == '{' && i + 1 < n && fmt[i + 1] == '}') {
+            std::cout << first;
+            printk(fmt.substr(i + 2), rest...);
+            return;
+        } else {
+            std::cout << fmt[i];
+        }
     }
 }
 
