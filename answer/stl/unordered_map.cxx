@@ -9,14 +9,12 @@ struct test {
     }
 };
 
-namespace std {
-    template<>
-    struct hash<test> {
-        size_t operator()(const test& t) const {
-            return std::hash<int>{}(t.a) ^ std::hash<int>{}(t.b) ^ std::hash<int>{}(t.c);
-        }
-    };
-}
+template<>
+struct std::hash<test> {
+    size_t operator()(const test& t) const {
+        return std::hash<int>{}(t.a) ^ std::hash<int>{}(t.b) ^ std::hash<int>{}(t.c);
+    }
+};
 
 int main() {
     std::unordered_map<test, int> h;
