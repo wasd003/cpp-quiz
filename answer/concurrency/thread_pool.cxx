@@ -1,70 +1,98 @@
-#include <condition_variable>
-#include <mutex>
-#include <quiz/base.h>
+#include <cstdlib>
 #include <functional>
+#include <iostream>
+#include <atomic>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <memory>
+#include <cassert>
+#include <new>
+#include <pthread.h>
+#include <thread>
+#include <future>
+#include <utility>
+#include <vector>
 #include <type_traits>
+#include <string_view>
+#include <cstring>
+#include <unordered_map>
+#include <optional>
+#include <shared_mutex>
 
-constexpr static int worker_nr = 12;
-std::queue<std::function<int(int)>> wq[worker_nr];
-std::queue<int> cq;
+using namespace std;
 
-std::mutex wq_mtx[worker_nr];
-std::condition_variable wq_cond[worker_nr];
+constexpr static int N = 12;
+constexpr static int M = 1024;
 
-std::mutex cq_mtx;
-std::condition_variable cq_cond;
+std::vector<std::packaged_task<int(void)>> wqs[N];
+std::mutex mtxs[N];
+std::condition_variable cvs[N];
+bool stop_flag[N];
 
 int select_worker() {
     static int cur = 0;
     auto ans = cur;
-    cur = (cur + 1) % worker_nr;
+    cur = (cur + 1) % N;
     return ans;
 }
 
-bool can_run() {
-    return true;
+template<typename F, typename... Args>
+std::future<int> submit(F&& func, Args&&... args) {
+    std::packaged_task<int(void)> tsk([_func = std::forward<F>(func), ..._args = std::forward<Args>(args)]() {
+        return _func(_args...);
+    });
+    const auto worker_id = select_worker();
+    auto& cv = cvs[worker_id];
+    auto& mtx = mtxs[worker_id];
+    auto& wq = wqs[worker_id];
+    std::unique_lock<std::mutex> lk(mtx);
+    wq.emplace_back(std::move(tsk));
+    auto ans = wq.back().get_future();
+    cv.notify_all();
+    return ans;
+}
+
+void worker_fn(int worker_id) {
+    auto& cv = cvs[worker_id];
+    auto& mtx = mtxs[worker_id];
+    auto& wq = wqs[worker_id];
+    auto& stop = stop_flag[worker_id];
+    for (;;) {
+        std::unique_lock<std::mutex> lk(mtx);
+        cv.wait(lk, [&wq, &stop]() { return wq.size() || stop; });
+        while (wq.size()) {
+            auto& cur_tsk = wq.back();
+            cur_tsk();
+            wq.pop_back();
+        }
+        if (stop)
+            break;
+    }
 }
 
 int main() {
     std::vector<std::thread> worker_list;
-    const int max_seq_submit_cnt = 5;
-    std::thread scheduler([]() {
-        for (;;) {
-            for (int round = 0; round < max_seq_submit_cnt; round ++ ) {
-                auto worker_idx = select_worker();
-                std::unique_lock<std::mutex> lk(wq_mtx[worker_idx]);
-                wq[worker_idx].emplace([](int i) {
-                        return i * 17;
-                });
-                printf("[sched] wakeup worker-%d\n", worker_idx);
-                wq_cond[worker_idx].notify_all();
-            }
-            std::unique_lock<std::mutex> lk(cq_mtx);
-            cq_cond.wait(lk, []() {return cq.size() >= max_seq_submit_cnt;});
-            while (cq.size()) {
-                auto result = cq.front(); cq.pop();
-                printf("[sched] result:%d\n", result);
-            }
-        }
-    });
-
-    for (int i = 0; i < worker_nr; i ++ ) {
-        worker_list.emplace_back([](int worker_id) {
-            auto& my_wq = wq[worker_id];
-            std::unique_lock<std::mutex> lk(wq_mtx[worker_id]);
-            for (;;) {
-                wq_cond[worker_id].wait(lk, [&my_wq]() { return my_wq.size(); });
-                while (my_wq.size()) {
-                    auto job = my_wq.front(); my_wq.pop();
-                    auto result = job(10);
-                    printf("[worker-%d] result:%d\n", worker_id, result);
-                    std::unique_lock<std::mutex> cq_lk(cq_mtx);
-                    cq.emplace(result);
-                }
-                cq_cond.notify_all();
-            }
-        }, i);
+    for (int i = 0; i < N; i ++ ) {
+        worker_list.emplace_back(worker_fn, i);
     }
-    scheduler.join();
-    for (auto& i : worker_list) i.join();
+
+    std::vector<std::future<int>> results;
+    for (int i = 0; i < M; i ++ ) {
+        auto fut = submit([](int a, int b) { return a + b; }, i, i);
+        results.emplace_back(std::move(fut));
+    }
+    for (int i = 0; i < M; i ++ ) {
+        auto ans = results[i].get();
+        std::cout << "i:" << i << " ans:" << ans << std::endl;
+    }
+
+    for (int i = 0; i < N; i ++ ) {
+        stop_flag[i] = true;
+        cvs[i].notify_all();
+        worker_list[i].join();
+    }
+    return 0;
 }
+
