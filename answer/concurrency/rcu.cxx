@@ -5,6 +5,8 @@
 #include <thread>
 #include <iostream>
 
+/// refer: https://www.cnblogs.com/LoyenWang/p/12681494.html
+
 template<typename T>
 struct RCU {
 private:
