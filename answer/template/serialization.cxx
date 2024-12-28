@@ -24,18 +24,12 @@ struct address_book {
         work,
     };
     struct phone_number {
-        static auto serialize(auto& archive, auto& self) {
-            return archive(self.number, self.type);
-        }
         phone_number(const std::string& number, phone_type type) : number(number), type(type) {}
         phone_number() = default;
         std::string number;
         phone_type type;
     };
     struct person {
-        static auto serialize(auto& archive, auto& self) {
-            return archive(self.name, self.id, self.email, self.phones);
-        }
         person(const std::string& name, int id, const std::string& email, std::vector<phone_number> phones)
             : name(name), id(id), email(email), phones(std::move(phones)) {}
         person() = default;
@@ -44,9 +38,6 @@ struct address_book {
         std::string email;
         std::vector<phone_number> phones;
     };
-    static auto serialize(auto& archive, auto& self) {
-        return archive(self.people);
-    }
     std::vector<person> people;
 
     friend std::ostream& operator<<(std::ostream& os, const address_book& book) {
@@ -59,6 +50,51 @@ struct address_book {
         return os;
     }
 };
+
+/// a type which can convert to any type
+struct universal { template <typename Type> operator Type(); };
+
+template <typename Type>
+consteval std::size_t member_counter()
+{
+    if constexpr (requires { requires std::is_empty_v<Type> && sizeof(Type); }) { return 0; }
+    else if constexpr (requires { Type{universal{}, universal{}, universal{}, universal{}, universal{}, universal{}}; }) { return 6; }
+    else if constexpr (requires { Type{universal{}, universal{}, universal{}, universal{}, universal{}}; }) { return 5; }
+    else if constexpr (requires { Type{universal{}, universal{}, universal{}, universal{}}; }) { return 4; }
+    else if constexpr (requires { Type{universal{}, universal{}, universal{}}; }) { return 3; }
+    else if constexpr (requires { Type{universal{}, universal{}}; }) { return 2; }
+    else if constexpr (requires { Type{universal{}}; }) { return 1; }
+    else { static_assert(std::is_void_v<Type>, "number_of_members: maximum reached."); }
+}
+
+decltype(auto) visit_members(auto&& object, auto&& visitor) {
+    using type = std::remove_cvref_t<decltype(object)>;
+    constexpr auto count = member_counter<type>();
+    if constexpr (count == 0) {
+        return visitor();
+    } else if constexpr (count == 1) {
+        auto& [a1] = object;
+        return visitor(a1);
+    } else if constexpr (count == 2) {
+        auto& [a1, a2] = object;
+        return visitor(a1, a2);
+    } else if constexpr (count == 3) {
+        auto& [a1, a2, a3] = object;
+        return visitor(a1, a2, a3);
+    } else if constexpr (count == 4) {
+        auto& [a1, a2, a3, a4] = object;
+        return visitor(a1, a2, a3, a4);
+    } else if constexpr (count == 5) {
+        auto& [a1, a2, a3, a4, a5] = object;
+        return visitor(a1, a2, a3, a4, a5);
+    } else if constexpr (count == 6) {
+        auto& [a1, a2, a3, a4, a5, a6] = object;
+        return visitor(a1, a2, a3, a4, a5, a6);
+    } else {
+        static_assert(std::is_void_v<decltype(object)>,
+                      "visit_members: maximum reached.");
+    }
+}
 
 /// Kind can be either input or output
 template <typename ByteView, typename Kind>
@@ -109,10 +145,10 @@ private:
                 }
             }
             return succ_code;
-        } else if constexpr (requires { type::serialize(*this, object); }) {
-            return type::serialize(*this, object);
         } else {
-            static_assert(std::is_void_v<type>, "Currently Unsupported");
+            return visit_members(object, [&](auto&... members) {
+                return archive_many(members...);
+            });
         }
     }
 

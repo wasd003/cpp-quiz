@@ -16,7 +16,7 @@
 #include <queue>
 #include <mutex>
 
-struct any {
+struct universal {
 private:
     struct execution_interface {
         virtual void execute() = 0;
@@ -53,14 +53,14 @@ public:
     }
 
     template<typename Tsk, typename... Args>
-    any(Tsk tsk, Args&&... args):
+    universal(Tsk tsk, Args&&... args):
         pimpl(std::make_unique<execution_engine<Tsk, Args...>>(
                     std::move(tsk),
                     std::forward<Args>(args)...))
     {}
 };
 
-static std::deque<any> vec;
+static std::deque<universal> vec;
 static constinit std::mutex mtx;
 static std::condition_variable cv;
 
