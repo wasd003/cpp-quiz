@@ -109,6 +109,17 @@ void t3_func_cpt(const T&) {
     debug("has ok");
 }
 
+template<typename T>
+void t3_func_constexpr(const T& args) {
+    if constexpr (requires(T t) {
+        {t.ok(int{}, int{})} -> std::same_as<void>;
+    }) {
+        debug("has ok");
+    } else {
+        debug("no ok");
+    }
+}
+
 void T3() {
     struct has_ok_type { void ok(int, int) {}};
     struct no_ok_type {};
@@ -116,6 +127,8 @@ void T3() {
     t3_func(no_ok_type {});
     t3_func_cpt(has_ok_type {});
     t3_func_cpt(no_ok_type {});
+    t3_func_constexpr(has_ok_type {});
+    t3_func_constexpr(no_ok_type {});
 }
 
 int main() {
